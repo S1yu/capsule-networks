@@ -17,8 +17,9 @@ NUM_CLASSES = 10
 NUM_EPOCHS = 500
 NUM_ROUTING_ITERATIONS = 3
 
-
+# bij 先验概率
 def softmax(input, dim=1):
+    # 转置
     transposed_input = input.transpose(dim, len(input.size()) - 1)
     softmaxed_output = F.softmax(transposed_input.contiguous().view(-1, transposed_input.size(-1)), dim=-1)
     return softmaxed_output.view(*transposed_input.size()).transpose(dim, len(input.size()) - 1)
@@ -54,7 +55,7 @@ class CapsuleLayer(nn.Module):
             self.capsules = nn.ModuleList(   # 组织网络 看不懂
                 [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=0) for _ in
                  range(num_capsules)])
-    # vj= |sj|^2 / 1+|sj|^2 * sj/|sj|  胶囊j
+    # vj= |sj|^2 / 1+|sj|^2 * sj/|sj|  胶囊的输出
     def squash(self, tensor, dim=-1): # dim =-1 的意思是取维度最大的
         squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
         scale = squared_norm / (1 + squared_norm)
@@ -62,8 +63,9 @@ class CapsuleLayer(nn.Module):
 
     def forward(self, x):
         if self.num_route_nodes != -1:
+            #权重W * c_ij 耦合系数
             priors = x[None, :, :, None, :] @ self.route_weights[:, None, :, :, :]
-                #zero  zero的向量
+                #zero  zero的向量 priors :b_ij
             logits = Variable(torch.zeros(*priors.size())).cuda()
             for i in range(self.num_iterations):
                 probs = softmax(logits, dim=2)
