@@ -37,7 +37,7 @@ def augmentation(x, max_shift=2):
     shifted_image[:, :, source_height_slice, source_width_slice] = x[:, :, target_height_slice, target_width_slice]
     return shifted_image.float()
 
-
+# 一层胶囊
 class CapsuleLayer(nn.Module):
     def __init__(self, num_capsules, num_route_nodes, in_channels, out_channels, kernel_size=None, stride=None,
                  num_iterations=NUM_ROUTING_ITERATIONS):
@@ -48,22 +48,22 @@ class CapsuleLayer(nn.Module):
 
         self.num_capsules = num_capsules
 
-        if num_route_nodes != -1:
+        if num_route_nodes != -1: # 提供参数
             self.route_weights = nn.Parameter(torch.randn(num_capsules, num_route_nodes, in_channels, out_channels))
         else:
-            self.capsules = nn.ModuleList(
+            self.capsules = nn.ModuleList(   # 组织网络 看不懂
                 [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=0) for _ in
                  range(num_capsules)])
-
-    def squash(self, tensor, dim=-1):
+    # vj= |sj|^2 / 1+|sj|^2 * sj/|sj|  胶囊j
+    def squash(self, tensor, dim=-1): # dim =-1 的意思是取维度最大的
         squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
         scale = squared_norm / (1 + squared_norm)
-        return scale * tensor / torch.sqrt(squared_norm)
+        return scale * tensor / torch.sqrt(squared_norm) # 平方开根号取模
 
     def forward(self, x):
         if self.num_route_nodes != -1:
             priors = x[None, :, :, None, :] @ self.route_weights[:, None, :, :, :]
-
+                #zero  zero的向量
             logits = Variable(torch.zeros(*priors.size())).cuda()
             for i in range(self.num_iterations):
                 probs = softmax(logits, dim=2)
