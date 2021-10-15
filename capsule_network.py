@@ -50,6 +50,7 @@ class CapsuleLayer(nn.Module):
         self.num_capsules = num_capsules
 
         if num_route_nodes != -1: # 提供参数W
+                #randn 返回个符合均值为0，方差为1的正态分布（标准正态分布）中填充随机数的张量 W 矩阵？
             self.route_weights = nn.Parameter(torch.randn(num_capsules, num_route_nodes, in_channels, out_channels))
         else:
             self.capsules = nn.ModuleList(   # 组织网络 看不懂
@@ -63,13 +64,13 @@ class CapsuleLayer(nn.Module):
 
     def forward(self, x):
         if self.num_route_nodes != -1:
-            #priors =  上一层的输出
+            #priors =  上一层的输出 *W 权重矩阵，=U_ij 预测向量 该给哪个网络传输
             priors = x[None, :, :, None, :] @ self.route_weights[:, None, :, :, :]
-                #zero  zero的向量 priors :b_ij
+                #zero    zero的向量 priors :b_ij
             logits = Variable(torch.zeros(*priors.size())).cuda()
             for i in range(self.num_iterations):
                 C_ij = softmax(logits, dim=2) # C_ij 耦合系数使用softmax
-                #  si = probs * priors 总输入
+                #  si = probs * priors 总输入                    dim=2不理解
                 outputs = self.squash((C_ij * priors).sum(dim=2, keepdim=True))
 
                 if i != self.num_iterations - 1:
@@ -86,14 +87,14 @@ class CapsuleLayer(nn.Module):
 class CapsuleNet(nn.Module):
     def __init__(self):
         super(CapsuleNet, self).__init__()
-
+        #卷积层 in 28*28 核：9*9*256 ， out20*20*256
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=256, kernel_size=9, stride=1)
         #每个胶囊有8个卷积单元，9*9 步长=2
         self.primary_capsules = CapsuleLayer(num_capsules=8, num_route_nodes=-1, in_channels=256, out_channels=32,
                                              kernel_size=9, stride=2)
         self.digit_capsules = CapsuleLayer(num_capsules=NUM_CLASSES, num_route_nodes=32 * 6 * 6, in_channels=8,
                                            out_channels=16)
- #解码器
+         #解码器
         self.decoder = nn.Sequential(
             nn.Linear(16 * NUM_CLASSES, 512),
             nn.ReLU(inplace=True),
