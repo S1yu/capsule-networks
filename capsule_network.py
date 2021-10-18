@@ -53,7 +53,9 @@ class CapsuleLayer(nn.Module):
                 #randn 返回个符合均值为0，方差为1的正态分布（标准正态分布）中填充随机数的张量 W 矩阵？
             self.route_weights = nn.Parameter(torch.randn(num_capsules, num_route_nodes, in_channels, out_channels))
         else:
-            self.capsules = nn.ModuleList(   # 组织网络 看不懂
+            # 第一层胶囊不使用路由算法  路由在第一层和第二层之间
+            self.capsules = nn.ModuleList(
+                        #   265         32              9*9                     2            8个胶囊循环8次
                 [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=0) for _ in
                  range(num_capsules)])
     # vj= |sj|^2 / 1+|sj|^2 * sj/|sj|  胶囊的输出
@@ -64,10 +66,10 @@ class CapsuleLayer(nn.Module):
 
     def forward(self, x):
         if self.num_route_nodes != -1:
-            #priors =  上一层的输出 *W 权重矩阵，=U_ij 预测向量 该给哪个网络传输
+            #priors= U j|i =  上一层的输出 *W 权重矩阵，=U_ij 预测向量 该给哪个网络传输
             priors = x[None, :, :, None, :] @ self.route_weights[:, None, :, :, :]
-                #zero    zero的向量 priors :b_ij
-            logits = Variable(torch.zeros(*priors.size())).cuda()
+            #logits b_ij
+            logits = Variable(torch.zeros(*priors.size()))#.cuda()
             for i in range(self.num_iterations):
                 C_ij = softmax(logits, dim=2) # C_ij 耦合系数使用softmax
                 #  si = probs * priors 总输入                    dim=2不理解
@@ -115,10 +117,9 @@ class CapsuleNet(nn.Module):
         if y is None:
             # In all batches, get the most active capsule.
             _, max_length_indices = classes.max(dim=1)
-            y = Variable(torch.eye(NUM_CLASSES)).cuda().index_select(dim=0, index=max_length_indices.data)
-
-        reconstructions = self.decoder((x * y[:, :, None]).view(x.size(0), -1))
-
+            #y = Variable(torch.eye(NUM_CLASSES)).cuda().index_select(dim=0, index=max_length_indices.data)
+            y = Variable(torch.eye(NUM_CLASSES)).index_select(dim=0, index=max_length_indices.data)
+        reconstructions = self.decoder((x * y[:, :, None]).contiguous().view(x.size(0), -1))
         return classes, reconstructions
 
 # LossFunc
@@ -145,15 +146,15 @@ if __name__ == "__main__":
     from torch.autograd import Variable
     from torch.optim import Adam
     from torchnet.engine import Engine
-    from torchnet.logger import VisdomPlotLogger, VisdomLogger
+    #from torchnet.logger import VisdomPlotLogger, VisdomLogger
     from torchvision.utils import make_grid
-    from torchvision.datasets.mnist import MNIST
+    from torchvision.datasets.mnist import MNIST,FashionMNIST
     from tqdm import tqdm
     import torchnet as tnt
 
     model = CapsuleNet()
     # model.load_state_dict(torch.load('epochs/epoch_327.pt'))
-    model.cuda()
+    #model.cuda()
 
     print("# parameters:", sum(param.numel() for param in model.parameters()))
 
@@ -164,21 +165,21 @@ if __name__ == "__main__":
     meter_accuracy = tnt.meter.ClassErrorMeter(accuracy=True)
     confusion_meter = tnt.meter.ConfusionMeter(NUM_CLASSES, normalized=True)
 
-    train_loss_logger = VisdomPlotLogger('line', opts={'title': 'Train Loss'})
-    train_error_logger = VisdomPlotLogger('line', opts={'title': 'Train Accuracy'})
-    test_loss_logger = VisdomPlotLogger('line', opts={'title': 'Test Loss'})
-    test_accuracy_logger = VisdomPlotLogger('line', opts={'title': 'Test Accuracy'})
-    confusion_logger = VisdomLogger('heatmap', opts={'title': 'Confusion matrix',
-                                                     'columnnames': list(range(NUM_CLASSES)),
-                                                     'rownames': list(range(NUM_CLASSES))})
-    ground_truth_logger = VisdomLogger('image', opts={'title': 'Ground Truth'})
-    reconstruction_logger = VisdomLogger('image', opts={'title': 'Reconstruction'})
+    # train_loss_logger = VisdomPlotLogger('line', opts={'title': 'Train Loss'})
+    # train_error_logger = VisdomPlotLogger('line', opts={'title': 'Train Accuracy'})
+    # test_loss_logger = VisdomPlotLogger('line', opts={'title': 'Test Loss'})
+    # test_accuracy_logger = VisdomPlotLogger('line', opts={'title': 'Test Accuracy'})
+    # confusion_logger = VisdomLogger('heatmap', opts={'title': 'Confusion matrix',
+    #                                                  'columnnames': list(range(NUM_CLASSES)),
+    #                                                  'rownames': list(range(NUM_CLASSES))})
+    # ground_truth_logger = VisdomLogger('image', opts={'title': 'Ground Truth'})
+    # reconstruction_logger = VisdomLogger('image', opts={'title': 'Reconstruction'})
 
     capsule_loss = CapsuleLoss()
 
 
     def get_iterator(mode):
-        dataset = MNIST(root='./data', download=True, train=mode)
+        dataset = MNIST(root='./data', download=False, train=mode)
         data = getattr(dataset, 'train_data' if mode else 'test_data')
         labels = getattr(dataset, 'train_labels' if mode else 'test_labels')
         tensor_dataset = tnt.dataset.TensorDataset([data, labels])
@@ -194,8 +195,8 @@ if __name__ == "__main__":
 
         labels = torch.eye(NUM_CLASSES).index_select(dim=0, index=labels)
 
-        data = Variable(data).cuda()
-        labels = Variable(labels).cuda()
+        data = Variable(data)#.cuda()
+        labels = Variable(labels)#.cuda()
 
         if training:
             classes, reconstructions = model(data, labels)
@@ -231,16 +232,17 @@ if __name__ == "__main__":
     def on_end_epoch(state):
         print('[Epoch %d] Training Loss: %.4f (Accuracy: %.2f%%)' % (
             state['epoch'], meter_loss.value()[0], meter_accuracy.value()[0]))
-
-        train_loss_logger.log(state['epoch'], meter_loss.value()[0])
-        train_error_logger.log(state['epoch'], meter_accuracy.value()[0])
+        if meter_accuracy.value()[0]>=0.95:
+            torch.save(model,"./data")
+        # train_loss_logger.log(state['epoch'], meter_loss.value()[0])
+        # train_error_logger.log(state['epoch'], meter_accuracy.value()[0])
 
         reset_meters()
 
         engine.test(processor, get_iterator(False))
-        test_loss_logger.log(state['epoch'], meter_loss.value()[0])
-        test_accuracy_logger.log(state['epoch'], meter_accuracy.value()[0])
-        confusion_logger.log(confusion_meter.value())
+        # test_loss_logger.log(state['epoch'], meter_loss.value()[0])
+        # test_accuracy_logger.log(state['epoch'], meter_accuracy.value()[0])
+        # confusion_logger.log(confusion_meter.value())
 
         print('[Epoch %d] Testing Loss: %.4f (Accuracy: %.2f%%)' % (
             state['epoch'], meter_loss.value()[0], meter_accuracy.value()[0]))
@@ -252,13 +254,14 @@ if __name__ == "__main__":
         test_sample = next(iter(get_iterator(False)))
 
         ground_truth = (test_sample[0].unsqueeze(1).float() / 255.0)
-        _, reconstructions = model(Variable(ground_truth).cuda())
+        #_, reconstructions = model(Variable(ground_truth).cuda())
+        _, reconstructions = model(Variable(ground_truth))
         reconstruction = reconstructions.cpu().view_as(ground_truth).data
 
-        ground_truth_logger.log(
-            make_grid(ground_truth, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
-        reconstruction_logger.log(
-            make_grid(reconstruction, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
+        # ground_truth_logger.log(
+        #     make_grid(ground_truth, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
+        # reconstruction_logger.log(
+        #     make_grid(reconstruction, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
 
     # def on_start(state):
     #     state['epoch'] = 327
