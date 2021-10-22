@@ -11,7 +11,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 import numpy as np
-
 BATCH_SIZE = 100
 NUM_CLASSES = 10
 NUM_EPOCHS = 500
@@ -53,17 +52,17 @@ class CapsuleLayer(nn.Module):
                 #randn 返回个符合均值为0，方差为1的正态分布（标准正态分布）中填充随机数的张量 W 矩阵？
             self.route_weights = nn.Parameter(torch.randn(num_capsules, num_route_nodes, in_channels, out_channels))
         else:
-            # 第一层胶囊不使用路由算法  路由在第一层和第二层之间
+            # 第一层胶囊不使用路由算法  路由在第一层和第二层之间  使用普通的卷积
             self.capsules = nn.ModuleList(
-                        #   265         32              9*9                     2            8个胶囊循环8次
+                        #   265         32              9*9                     2            8个胶囊循环8次 输出6*6*32*8=6*6*256
                 [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=0) for _ in
                  range(num_capsules)])
-    # vj= |sj|^2 / 1+|sj|^2 * sj/|sj|  胶囊的输出
-    def squash(self, tensor, dim=-1): # dim =-1 的意思是取维度最大的
+    # vj= |sj|^2 / root+|sj|^2 * sj/|sj|  胶囊的输出
+    def squash(self, tensor, dim=-1): # dim =-root 的意思是取维度最大的
         squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
         scale = squared_norm / (1 + squared_norm)
         return scale * tensor / torch.sqrt(squared_norm) # 平方开根号取模
-
+    #前想传播
     def forward(self, x):
         if self.num_route_nodes != -1:
             #priors= U j|i =  上一层的输出 *W 权重矩阵，=U_ij 预测向量 该给哪个网络传输
@@ -105,7 +104,7 @@ class CapsuleNet(nn.Module):
             nn.Linear(1024, 784),
             nn.Sigmoid()
         )
-
+            #y就是label
     def forward(self, x, y=None):
         x = F.relu(self.conv1(x), inplace=True)
         x = self.primary_capsules(x)
@@ -148,12 +147,14 @@ if __name__ == "__main__":
     from torchnet.engine import Engine
     #from torchnet.logger import VisdomPlotLogger, VisdomLogger
     from torchvision.utils import make_grid
-    from torchvision.datasets.mnist import MNIST,FashionMNIST
+    from torchvision.datasets.mnist import MNIST
+    from torchvision import datasets
     from tqdm import tqdm
     import torchnet as tnt
 
     model = CapsuleNet()
-    # model.load_state_dict(torch.load('epochs/epoch_327.pt'))
+
+    model.load_state_dict(torch.load("epochs/epoch_4.pth",map_location="cpu"))
     #model.cuda()
 
     print("# parameters:", sum(param.numel() for param in model.parameters()))
@@ -181,11 +182,18 @@ if __name__ == "__main__":
     def get_iterator(mode):
         dataset = MNIST(root='./data', download=False, train=mode)
         data = getattr(dataset, 'train_data' if mode else 'test_data')
+
         labels = getattr(dataset, 'train_labels' if mode else 'test_labels')
         tensor_dataset = tnt.dataset.TensorDataset([data, labels])
 
         return tensor_dataset.parallel(batch_size=BATCH_SIZE, num_workers=4, shuffle=mode)
+    def test_iteratro(mode):
+        dataset=datasets.ImageFolder("./data/root")
+        pass
 
+
+    def testprocessr(sample):
+        pass
 
     def processor(sample):
         data, labels, training = sample
@@ -247,7 +255,7 @@ if __name__ == "__main__":
         print('[Epoch %d] Testing Loss: %.4f (Accuracy: %.2f%%)' % (
             state['epoch'], meter_loss.value()[0], meter_accuracy.value()[0]))
 
-        torch.save(model.state_dict(), 'epochs/epoch_%d.pt' % state['epoch'])
+        torch.save(model.state_dict(), 'epochs/epoch_%d_%d.pt' % (state['epoch'],meter_accuracy.value()[0]))
 
         # Reconstruction visualization.
 
@@ -259,9 +267,9 @@ if __name__ == "__main__":
         reconstruction = reconstructions.cpu().view_as(ground_truth).data
 
         # ground_truth_logger.log(
-        #     make_grid(ground_truth, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
+        #     make_grid(ground_truth, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, root)).numpy())
         # reconstruction_logger.log(
-        #     make_grid(reconstruction, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, 1)).numpy())
+        #     make_grid(reconstruction, nrow=int(BATCH_SIZE ** 0.5), normalize=True, range=(0, root)).numpy())
 
     # def on_start(state):
     #     state['epoch'] = 327
