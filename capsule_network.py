@@ -5,9 +5,13 @@ https://arxiv.org/abs/1710.09829
 PyTorch implementation by Kenta Iwasaki @ Gram.AI.
 """
 import sys
+
+from torchvision.transforms import transforms
+
 sys.setrecursionlimit(15000)
 
 import torch
+import torch.utils.data
 import torch.nn.functional as F
 from torch import nn
 import numpy as np
@@ -185,11 +189,14 @@ if __name__ == "__main__":
 
         labels = getattr(dataset, 'train_labels' if mode else 'test_labels')
         tensor_dataset = tnt.dataset.TensorDataset([data, labels])
+        res=tensor_dataset.parallel(batch_size=BATCH_SIZE, num_workers=4, shuffle=mode)
+        return res
 
-        return tensor_dataset.parallel(batch_size=BATCH_SIZE, num_workers=4, shuffle=mode)
     def test_iteratro(mode):
-        dataset=datasets.ImageFolder("./data/root")
-        pass
+        transform=transforms.Compose([transforms.Resize((28,28)),transforms.Grayscale(num_output_channels=1),transforms.ToTensor()])
+        mytest_data=datasets.ImageFolder("./data/root",transform=transform)
+        dl=torch.utils.data.DataLoader(mytest_data,batch_size=1)
+        return dl
 
 
     def testprocessr(sample):
