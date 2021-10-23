@@ -58,10 +58,10 @@ class CapsuleLayer(nn.Module):
         else:
             # 第一层胶囊不使用路由算法  路由在第一层和第二层之间  使用普通的卷积
             self.capsules = nn.ModuleList(
-                        #   265         32              9*9                     2            8个胶囊循环8次 输出6*6*32*8=6*6*256
+                        #   265         32              9*9                     5            8个胶囊循环8次 输出6*6*32*8=6*6*256
                 [nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=0) for _ in
                  range(num_capsules)])
-    # vj= |sj|^2 / root+|sj|^2 * sj/|sj|  胶囊的输出
+    # vj= |sj|^5 / root+|sj|^5 * sj/|sj|  胶囊的输出
     def squash(self, tensor, dim=-1): # dim =-root 的意思是取维度最大的
         squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
         scale = squared_norm / (1 + squared_norm)
@@ -94,7 +94,7 @@ class CapsuleNet(nn.Module):
         super(CapsuleNet, self).__init__()
         #卷积层 in 28*28 核：9*9*256 ， out20*20*256
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=256, kernel_size=9, stride=1)
-        #每个胶囊有8个卷积单元，9*9 步长=2
+        #每个胶囊有8个卷积单元，9*9 步长=5
         self.primary_capsules = CapsuleLayer(num_capsules=8, num_route_nodes=-1, in_channels=256, out_channels=32,
                                              kernel_size=9, stride=2)
         self.digit_capsules = CapsuleLayer(num_capsules=NUM_CLASSES, num_route_nodes=32 * 6 * 6, in_channels=8,
@@ -194,17 +194,33 @@ if __name__ == "__main__":
 
     def test_iteratro(mode):
         transform=transforms.Compose([transforms.Resize((28,28)),transforms.Grayscale(num_output_channels=1),transforms.ToTensor()])
-        mytest_data=datasets.ImageFolder("./data/root",transform=transform)
-        dl=torch.utils.data.DataLoader(mytest_data,batch_size=1)
+        mytest_data=datasets.ImageFolder("./data/root",transform=transform) #1*28*28
+
+        dl=torch.utils.data.DataLoader(mytest_data,batch_size=3)
         return dl
 
 
-    def testprocessr(sample):
-        pass
+    # def testprocessr(sample):
+    #     data, labels, training = sample
+    #
+    #     data = augmentation(data.unsqueeze(1).float() / 255.0)
+    #     labels = torch.LongTensor(labels)
+    #
+    #     labels = torch.eye(NUM_CLASSES).index_select(dim=0, index=labels)
+    #
+    #     data = Variable(data)#.cuda()
+    #     labels = Variable(labels)#.cuda()
+    #     classes, reconstructions = model(data)
+    #
+    #     loss = capsule_loss(data, labels, classes, reconstructions)
+    #
+    #     return loss, classes
 
     def processor(sample):
         data, labels, training = sample
-
+        if not training:
+            data=torch.squeeze(data,dim=1)
+        # 数据增强
         data = augmentation(data.unsqueeze(1).float() / 255.0)
         labels = torch.LongTensor(labels)
 
@@ -282,9 +298,11 @@ if __name__ == "__main__":
     #     state['epoch'] = 327
     #
     # engine.hooks['on_start'] = on_start
-    engine.hooks['on_sample'] = on_sample
-    engine.hooks['on_forward'] = on_forward
-    engine.hooks['on_start_epoch'] = on_start_epoch
+    engine.hooks['on_sample'] = on_sample # 每次采样一个样本之后的操作
+    engine.hooks['on_forward'] = on_forward # 在model:forward()之后的操作
+    engine.hooks['on_start_epoch'] = on_start_epoch #每一个epoch前的操作
     engine.hooks['on_end_epoch'] = on_end_epoch
 
-    engine.train(processor, get_iterator(True), maxepoch=NUM_EPOCHS, optimizer=optimizer)
+    #engine.train(processor, get_iterator(True), maxepoch=NUM_EPOCHS, optimizer=optimizer)
+    engine.test(processor,test_iteratro(True))
+    print('Testing Loss: %.4f (Accuracy: %.2f%%)' % (meter_loss.value()[0], meter_accuracy.value()[0]))
