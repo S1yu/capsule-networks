@@ -157,7 +157,7 @@ if __name__ == "__main__":
     import torchnet as tnt
 
     model = CapsuleNet()
-
+    show=transforms.ToPILImage()
     model.load_state_dict(torch.load("epochs/epoch_4.pth",map_location="cpu"))
     #model.cuda()
 
@@ -192,11 +192,10 @@ if __name__ == "__main__":
         res=tensor_dataset.parallel(batch_size=BATCH_SIZE, num_workers=4, shuffle=mode)
         return res
 
-    def test_iteratro(mode):
+    def test_iteratro():
         transform=transforms.Compose([transforms.Resize((28,28)),transforms.Grayscale(num_output_channels=1),transforms.ToTensor()])
         mytest_data=datasets.ImageFolder("./data/root",transform=transform) #1*28*28
-
-        dl=torch.utils.data.DataLoader(mytest_data,batch_size=3)
+        dl=torch.utils.data.DataLoader(mytest_data,batch_size=11)
         return dl
 
 
@@ -217,17 +216,23 @@ if __name__ == "__main__":
     #     return loss, classes
 
     def processor(sample):
+
         data, labels, training = sample
         if not training:
             data=torch.squeeze(data,dim=1)
+            data=1-data
+            data = augmentation(data.unsqueeze(1).float() )
+        else:
         # 数据增强
-        data = augmentation(data.unsqueeze(1).float() / 255.0)
+            data = augmentation(data.unsqueeze(1).float() / 255.0)
         labels = torch.LongTensor(labels)
 
         labels = torch.eye(NUM_CLASSES).index_select(dim=0, index=labels)
 
         data = Variable(data)#.cuda()
         labels = Variable(labels)#.cuda()
+        for i in range(10):
+            show(data[i]).show()
 
         if training:
             classes, reconstructions = model(data, labels)
@@ -235,7 +240,7 @@ if __name__ == "__main__":
             classes, reconstructions = model(data)
 
         loss = capsule_loss(data, labels, classes, reconstructions)
-
+        print(labels,classes)
         return loss, classes
 
 
@@ -304,5 +309,5 @@ if __name__ == "__main__":
     engine.hooks['on_end_epoch'] = on_end_epoch
 
     #engine.train(processor, get_iterator(True), maxepoch=NUM_EPOCHS, optimizer=optimizer)
-    engine.test(processor,test_iteratro(True))
+    engine.test(processor,test_iteratro())
     print('Testing Loss: %.4f (Accuracy: %.2f%%)' % (meter_loss.value()[0], meter_accuracy.value()[0]))
